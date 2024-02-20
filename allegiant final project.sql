@@ -1,0 +1,139 @@
+--1. How many passengers did Allegiant provide service to in 2019? Where does 
+--Allegiant rank among the top 15 airlines? To answer this question, rank order 
+--the total number of passengers served by unique airlines (AIRLINE_ID). 
+--Be sure to only count passenger on scheduled flights (CLASS = F)
+
+select
+	airline_id,
+	unique_carrier_name as airline,
+	sum(passengers) as total_passengers
+from domestic_market
+where class = 'F'
+group by 
+	airline_id, unique_carrier_name
+order by total_passengers desc
+limit 15;
+--allegiatn provided flight service to 14933055 passengers in 2019
+--allegiant is the 11th largest domestic airline in the US in 2019, ranked by total passenegrs served
+
+
+--2. What are the top 30 destinations airports for Allegiant in terms of total 
+--passengers served (scheduled flights only) in 2019? Compare your results to 
+--Allegiant’s Route Map. How many of these cities are considered destination cities 
+--(shown on the map as large orange circles)? How many are origination cities 
+--(shown on the map as small blue circles)? 
+
+select 
+	dest_airport_id,
+	dest as airport_code,
+	dest_city_name,
+	sum(passengers) as total_passengers
+from domestic_market
+where airline_id = '20368' and class = 'F'
+group by
+	dest_airport_id,
+	dest,
+	dest_city_name
+order by total_passengers desc
+limit 30;
+--12 of the top 30 destination airports are considered destination cities
+--18 of the top 30 destination airports are considered origination cities
+
+--3. Which airports represent potential new growth opportunities as potential 
+--destination cities? To address this question, determine the five largest 
+--(ranked by total number of passengers) secondary airports* located within 
+--markets (DEST_MARKET_ID) not currently served by Allegiant in 2019 with scheduled 
+--passenger flights (CLASS = F). Among these five airports, which do you think 
+--Allegiant should pursue as destination cities? Why? Compare your answer to 
+--Allegiant's newly announced routes/airport destinations for 2020.
+
+--step 1, total airport passengers
+create or replace view airport_passengers as
+select 
+	dest_city_market_id,
+	dest_city_name,
+	dest_airport_id,
+	dest,
+	sum(passengers) as passengers
+from domestic_market
+where class = 'F'
+group by
+	dest_city_market_id,
+	dest_city_name,
+	dest_airport_id,
+	dest
+order by passengers desc;
+
+--step 2, total passengers by market
+create or replace view market_size as
+select 
+	dest_city_market_id,
+	dest_city_name,
+	dest_airport_id,
+	dest,
+	passengers,
+	sum(passengers) over(partition by dest_city_market_id) as market_passengers
+from airport_passengers
+order by market_passengers desc, passengers desc;
+
+--step 3, unique allegiant destination markets
+create or replace view allegiant_markets as
+select
+	distinct dest_city_market_id,
+	dest_airport_id,
+	dest,
+	dest_city_name
+from domestic_market
+where airline_id = '20368' and class = 'F'
+order by dest_city_name;
+
+--4. airport rank within market
+create or replace view airport_rank as
+select
+	ms.dest_city_market_id as market_id,
+	ms.dest_city_name as city_name,
+	market_passengers,
+	ms.dest_airport_id as airport_id,
+	ms.dest as airport_code,
+	passengers,
+	rank() over (partition by ms.dest_city_market_id order by passengers desc) as airport_rank,
+	case
+		when am.dest is null then 0
+		else 1 end as allegiant_airport
+from market_size as ms
+left join allegiant_markets as am
+on ms.dest_city_market_id = am.dest_city_market_id
+	and ms.dest = am.dest
+order by market_passengers desc, passengers desc;
+
+--5. find non allegiant market
+create or replace view non_allegiant_markets as
+select
+	market_id,
+	city_name,
+	market_passengers,
+	airport_id,
+	airport_code,
+	passengers,
+	airport_rank,
+	allegiant_airport,
+	max(allegiant_airport) over(partition by market_id) as allegiant_market
+from airport_rank
+order by market_passengers desc, passengers desc;
+
+--secondary airports
+select *
+from non_allegiant_markets
+where allegiant_market = 0 and airport_rank = 2
+limit 5;
+
+--I think allegiant should pursue chicago, dallas, and houston as destination cities.
+--These airports have the highest amount of passengers out of the top 5 destinations that have secondary 
+--airports where allegiant isnt stationed. However, dallas may not be a primary target given that 
+--southwest is headquartered there.
+
+
+
+
+
+	
